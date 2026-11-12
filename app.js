@@ -1,22 +1,29 @@
 import { Transaccion } from './classes/Transaccion.js';
 
 const form = document.getElementById('form-transaccion');
-const tablaMovimientos = document.getElementById('tabla-movimientos');
-const totalIngresosElem = document.getElementById('total-ingresos');
-const totalGastosElem = document.getElementById('total-gastos');
-const balanceNetoElem = document.getElementById('balance-neto');
 const selectTipo = document.getElementById('tipo');
 const selectCategoria = document.getElementById('categoria');
-const errorMessageElem = document.getElementById('error'); // <- ¡Agregado! Asegúrate de tener un elemento con id="error" en tu HTML si lo usas
+const inputFecha = document.getElementById('fecha');
+const errorMessageElem = document.getElementById('error');
+const btnEliminarUltimo = document.getElementById('btn-eliminar-ultimo');
 
-// Validamos por tipo de categoría 
+let chartCategorias = null;
+let chartEvolucion = null;
+
 const categoriasPorTipo = {
     ingreso: ['Sueldo', 'Ventas', 'Extras'],
     gasto: ['Comida', 'Transporte', 'Entretenimiento', 'Servicios', 'Otros']
 };
 
-// Actualizamos categorías según el tipo que está seleccionado
+function cargarFechaHoy() {
+    if (inputFecha) {
+        inputFecha.value = new Date().toISOString().split('T')[0];
+    }
+}
+
 function actualizarCategorias() {
+    if (!selectTipo || !selectCategoria) return;
+
     const tipoSeleccionado = selectTipo.value;
     const opciones = categoriasPorTipo[tipoSeleccionado] || [];
     
@@ -29,54 +36,63 @@ function actualizarCategorias() {
     });
 }
 
-// Cuando cambia el tipo (Ingreso/Gasto) para actualizar las categorías
 selectTipo.addEventListener('change', actualizarCategorias);
 
-// LOCALSTORAGE
 function guardarEnLocalStorage() {
     localStorage.setItem('historialTransacciones', JSON.stringify(Transaccion.historial));
 }
 
 function cargarDesdeLocalStorage() {
     const datosGuardados = localStorage.getItem('historialTransacciones');
-    if(datosGuardados){
+    if (datosGuardados) {
         const transacciones = JSON.parse(datosGuardados);
-
-        // Limpiamos el historial actual antes de mapear para evitar que se dupliquen al recargar
         Transaccion.historial = [];
 
-        transacciones.map(t => {
-            const nuevaT = new Transaccion(t.tipo, t.descripcion, t.monto, t.categoria);
-            nuevaT.id = t.id; // Mantenemos el ID original
-            return nuevaT;
+        transacciones.forEach(t => {
+            const nuevaT = new Transaccion(t.tipo, t.descripcion, t.monto, t.categoria, t.fecha);
+            nuevaT.id = t.id;
         });
     }
 }
 
-// Submit del formulario
+//  Botón Eliminar
+if (btnEliminarUltimo) {
+    btnEliminarUltimo.addEventListener('click', () => {
+        if (Transaccion.historial.length > 0) {
+            Transaccion.historial.pop(); 
+            guardarEnLocalStorage();
+            actualizarInterfaz();
+        } else {
+            alert("No hay movimientos registrados para eliminar.");
+        }
+    });
+}
+
 form.addEventListener('submit', (e) => {
-    e.preventDefault(); // Es para que la página no se recargue
+    e.preventDefault(); 
     
-    // Tomamos los valores
     const descripcion = document.getElementById('descripcion').value.trim();
     const montoStr = document.getElementById('monto').value;
+    const fecha = inputFecha.value; 
     const tipo = selectTipo.value;
     const categoria = selectCategoria.value;
 
-    try{
-        const nuevaTransaccion = new Transaccion(tipo, descripcion, montoStr, categoria);
+    try {
+        new Transaccion(tipo, descripcion, montoStr, categoria, fecha);
+        
         guardarEnLocalStorage();
         actualizarInterfaz();
         form.reset();
+        cargarFechaHoy();
         actualizarCategorias();
 
-        if(errorMessageElem) {
+        if (errorMessageElem) {
             errorMessageElem.textContent = '';
-            errorMessageElem.classList.add('hidden'); // Ocultamos el error si todo salió bien
+            errorMessageElem.classList.add('hidden'); 
         } 
 
-    } catch(error) {
-        if(errorMessageElem) {
+    } catch (error) {
+        if (errorMessageElem) {
             errorMessageElem.textContent = error.message;
             errorMessageElem.classList.remove('hidden'); 
         } else {
@@ -85,79 +101,157 @@ form.addEventListener('submit', (e) => {
     }
 });
 
-// Actualizamos la pantalla con los datos del array
-function actualizarInterfaz() {
-    tablaMovimientos.innerHTML = '';
+function actualizarGraficoCategorias() {
+    const canvasElem = document.getElementById('graficoCategorias');
+    if (!canvasElem) return;
+    const ctx = canvasElem.getContext('2d');
 
-    // Si el array está vacío, mostramos el mensaje 
-    if (Transaccion.historial.length === 0) {
-        tablaMovimientos.innerHTML = `
-            <tr class="text-slate-400 text-center">
-                <td colspan="4" class="py-4">No hay movimientos registrados todavía.</td>
-            </tr>
-        `;
-        totalIngresosElem.textContent = '$0.00';
-        totalGastosElem.textContent = '$0.00';
-        balanceNetoElem.textContent = '$0.00';
-        balanceNetoElem.className = 'text-2xl font-bold text-slate-900';
-        return;
+    const categoriasTotales = {};
+    const coloresFondo = [];
+    const coloresBorde = [];
+
+    Transaccion.historial.forEach(t => {
+        if (!categoriasTotales[t.categoria]) {
+            categoriasTotales[t.categoria] = 0;
+        }
+        categoriasTotales[t.categoria] += t.monto;
+    });
+
+    const labels = Object.keys(categoriasTotales);
+    const datos = Object.values(categoriasTotales);
+
+    labels.forEach(cat => {
+        const esIngreso = ['Sueldo', 'Ventas', 'Extras'].includes(cat);
+        if (esIngreso) {
+            coloresFondo.push('rgb(16, 186, 129,)');
+            coloresBorde.push('rgb(5, 150, 105)');
+        } else {
+            coloresFondo.push('rgb(220, 38, 38,)');
+            coloresBorde.push('rgb(220, 38, 38)');
+        }
+    });
+
+    if (chartCategorias) {
+        chartCategorias.destroy();
     }
 
-    let totalIngresos = 0;
-    let totalGastos = 0;
-
-    // Recorre todas las transacciones almacenadas
-    Transaccion.historial.forEach((t) => {
-        if (t.tipo === 'ingreso') {
-            totalIngresos += t.monto;
-        } else {
-            totalGastos += t.monto;
+    chartCategorias = new Chart(ctx, {
+        type: 'bar',
+        data: {
+            labels: labels,
+            datasets: [{
+                label: 'Monto por Categoría',
+                data: datos,
+                backgroundColor: coloresFondo,
+                borderColor: coloresBorde,
+                borderWidth: 1,
+                borderRadius: 8
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: {
+                y: { beginAtZero: true }
+            }
         }
-       
-        const tr = document.createElement('tr');
-        tr.className = 'border-b border-slate-100 hover:bg-slate-50';
-
-        const colorMonto = t.tipo === 'ingreso' ? 'text-emerald-600' : 'text-rose-600';
-        const signoMonto = t.tipo === 'ingreso' ? '+' : '-';
-
-        tr.innerHTML = `
-            <td class="py-3 px-3 font-medium text-slate-800">${t.descripcion}</td>
-            <td class="py-3 px-3 text-slate-600">
-                <span class="px-2 py-1 bg-slate-100 rounded-md text-xs">${t.categoria}</span>
-            </td>
-            <td class="py-3 px-3 font-bold ${colorMonto}">${signoMonto}$${t.monto.toFixed(2)}</td>
-            <td class="py-3 px-3 text-center">
-                <button onclick="eliminarTransaccion(${t.id})" class="text-slate-400 hover:text-rose-600 transition text-sm font-medium">
-                    Eliminar
-                </button>
-            </td>
-        `;
-
-        tablaMovimientos.appendChild(tr);
     });
-    
-    const balanceNeto = totalIngresos - totalGastos;
-
-    totalIngresosElem.textContent = `$${totalIngresos.toFixed(2)}`;
-    totalGastosElem.textContent = `$${totalGastos.toFixed(2)}`;
-    balanceNetoElem.textContent = `$${balanceNeto.toFixed(2)}`;
-    
-    balanceNetoElem.className = `text-2xl font-bold ${balanceNeto >= 0 ? 'text-slate-900' : 'text-rose-600'}`;
 }
 
-// Eliminamos registro de la transacción
-window.eliminarTransaccion = function(id) {
-    const index = Transaccion.historial.findIndex(t => t.id === id);
-    
-    if (index !== -1) {
-        Transaccion.historial.splice(index, 1);
-        guardarEnLocalStorage();
-        actualizarInterfaz();
+function actualizarGraficoEvolucion() {
+    const canvasElem = document.getElementById('graficoEvolucion');
+    if (!canvasElem) return;
+    const ctx = canvasElem.getContext('2d');
+
+    if (chartEvolucion) {
+        chartEvolucion.destroy();
     }
-};
+
+    if (Transaccion.historial.length === 0) return;
+
+    const transaccionesOrdenadas = [...Transaccion.historial].sort((a, b) => new Date(a.fecha) - new Date(b.fecha));
+    const fechas = [...new Set(transaccionesOrdenadas.map(t => t.fecha))];
+    
+    const ingresosData = [];
+    const gastosData = [];
+    const balanceData = [];
+
+    let acumuladoIngresos = 0;
+    let acumuladoGastos = 0;
+
+    fechas.forEach(fecha => {
+        const transaccionesFecha = transaccionesOrdenadas.filter(t => t.fecha === fecha);
+        
+        transaccionesFecha.forEach(t => {
+            if (t.tipo === 'ingreso') {
+                acumuladoIngresos += t.monto;
+            } else {
+                acumuladoGastos += t.monto;
+            }
+        });
+
+        ingresosData.push(acumuladoIngresos);
+        gastosData.push(acumuladoGastos);
+        balanceData.push(acumuladoIngresos - acumuladoGastos);
+    });
+
+    chartEvolucion = new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: fechas,
+            datasets: [
+                {
+                    label: 'Ingresos Acumulados',
+                    data: ingresosData,
+                    borderColor: 'rgb(5, 150, 105)',
+                    backgroundColor: 'rgba(5, 150, 105,0.08)',
+                    fill: true,
+                    tension: 0.3
+                },
+                {
+                    label: 'Gastos Acumulados',
+                    data: gastosData,
+                    borderColor: 'rgb(220, 38, 38)',
+                    backgroundColor: 'rgba(244, 63, 94,0.05)',
+                    fill: true,
+                    tension: 0.3
+                },
+                {
+                    label: 'Balance Neto',
+                    data: balanceData,
+                    borderColor: 'rgb(99, 102, 241)',
+                    backgroundColor: 'rgba(99, 102, 241, 0.05)',
+                    fill: true,
+                    tension: 0.3
+                }
+            ]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: {
+                y: { beginAtZero: true }
+            }
+        }
+    });
+}
+
+function actualizarInterfaz() {
+    actualizarGraficoCategorias();
+    actualizarGraficoEvolucion();
+}
 
 document.addEventListener('DOMContentLoaded', () => {
-    actualizarCategorias();        // Carga inicial de categorías
-    cargarDesdeLocalStorage();     // Carga los datos guardados en localStorage
-    actualizarInterfaz();          // Pinta la tabla y calcula los balances
+    actualizarCategorias();       
+    cargarFechaHoy();
+    cargarDesdeLocalStorage();    
+    actualizarInterfaz();         
 });
+
+
+
+
+
+
+
+
