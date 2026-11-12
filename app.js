@@ -123,10 +123,10 @@ function actualizarGraficoCategorias() {
     labels.forEach(cat => {
         const esIngreso = ['Sueldo', 'Ventas', 'Extras'].includes(cat);
         if (esIngreso) {
-            coloresFondo.push('rgb(16, 186, 129,)');
+            coloresFondo.push('rgb(16, 186, 129)');
             coloresBorde.push('rgb(5, 150, 105)');
         } else {
-            coloresFondo.push('rgb(220, 38, 38,)');
+            coloresFondo.push('rgb(220, 38, 38)');
             coloresBorde.push('rgb(220, 38, 38)');
         }
     });
@@ -241,12 +241,13 @@ function actualizarInterfaz() {
     actualizarGraficoEvolucion();
 }
 
-document.addEventListener('DOMContentLoaded', () => {
-    actualizarCategorias();       
-    cargarFechaHoy();
+ document.addEventListener('DOMContentLoaded', () => {
     cargarDesdeLocalStorage();    
+    actualizarCategorias();       
+    cargarFechaHoy();             
     actualizarInterfaz();         
-});
+});     
+
 
 
 
